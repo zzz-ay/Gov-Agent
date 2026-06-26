@@ -1,0 +1,2 @@
+{"id": "7faca5c7-a29a-4a70-b210-df6016cf8e37", "created_at": "2026-06-23T08:01:49.660540+00:00", "session_id": "sqlite-test", "question": "sqlite chat?", "answer": "ok", "rating": "up", "issue_type": null, "comment": "storage smoke test"}
+{"id": "6f400237-332c-4ac9-a217-c31b3b1f43cd", "created_at": "2026-06-23T09:04:34.424120+00:00", "session_id": "smoke-test", "question": "高校毕业生档案可以自己携带吗", "answer": "smoke test answer", "rating": "up", "issue_type": "smoke_test", "comment": "core smoke test"}

@@ -1,0 +1,317 @@
+﻿import hashlib
+import math
+import os
+import pickle
+import re
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+from langchain_core.documents import Document
+
+from app.config import (
+    CHUNK_OVERLAP,
+    CHUNK_SIZE,
+    KNOWLEDGE_SOURCES,
+    PROCESSED_DIR,
+    RETRIEVER_TOP_K,
+)
+from app.knowledge_sources import get_enabled_knowledge_sources
+from app.rag.loader import load_documents_from_enabled_sources
+from app.rag.retriever import retrieve_documents
+from app.rag.splitter import split_documents
+
+
+BM25_CACHE_VERSION = 1
+BM25_CACHE_PATH = PROCESSED_DIR / "bm25_index.pkl"
+SUPPORTED_BM25_SUFFIXES = {".txt", ".md", ".pdf", ".docx"}
+
+
+def tokenize(text: str) -> List[str]:
+    text = text.lower()
+    ascii_terms = re.findall(r"[a-z0-9]+", text)
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
+    cjk_bigrams = [
+        "".join(cjk_chars[i : i + 2])
+        for i in range(max(0, len(cjk_chars) - 1))
+    ]
+    return ascii_terms + cjk_chars + cjk_bigrams
+
+
+def _iter_bm25_source_files() -> Iterable[Path]:
+    for source in get_enabled_knowledge_sources():
+        if not source.path.exists():
+            continue
+        for file_path in source.path.rglob("*"):
+            if file_path.is_dir():
+                continue
+            if file_path.name.endswith(".meta.txt"):
+                continue
+            if file_path.suffix.lower() in SUPPORTED_BM25_SUFFIXES:
+                yield file_path
+
+
+def _bm25_source_signature() -> str:
+    digest = hashlib.sha256()
+    digest.update(f"version={BM25_CACHE_VERSION}".encode("utf-8"))
+    digest.update(f"sources={KNOWLEDGE_SOURCES}".encode("utf-8"))
+    digest.update(f"chunk={CHUNK_SIZE}:{CHUNK_OVERLAP}".encode("utf-8"))
+
+    for file_path in sorted(_iter_bm25_source_files(), key=lambda p: str(p).lower()):
+        try:
+            stat = file_path.stat()
+        except OSError:
+            continue
+        digest.update(str(file_path).encode("utf-8", errors="ignore"))
+        digest.update(str(stat.st_size).encode("ascii"))
+        digest.update(str(stat.st_mtime_ns).encode("ascii"))
+
+    return digest.hexdigest()
+
+
+def _term_frequency(tokens: List[str]) -> Dict[str, int]:
+    term_freq: Dict[str, int] = {}
+    for term in tokens:
+        term_freq[term] = term_freq.get(term, 0) + 1
+    return term_freq
+
+
+def _build_bm25_index(signature: str) -> Dict[str, Any]:
+    docs = load_documents_from_enabled_sources()
+    chunks = split_documents(
+        documents=docs,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+
+    entries = []
+    for doc in chunks:
+        tokens = tokenize(doc.page_content)
+        if not tokens:
+            continue
+        metadata = doc.metadata or {}
+        entries.append(
+            {
+                "doc": doc,
+                "tokens": tokens,
+                "term_freq": _term_frequency(tokens),
+                "token_count": len(tokens),
+                "source_id": metadata.get("knowledge_source_id", ""),
+            }
+        )
+
+    return {
+        "version": BM25_CACHE_VERSION,
+        "signature": signature,
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "knowledge_sources": KNOWLEDGE_SOURCES,
+        "entries": entries,
+    }
+
+
+def _load_bm25_index_from_disk(signature: str) -> Optional[Dict[str, Any]]:
+    if not BM25_CACHE_PATH.exists():
+        return None
+
+    try:
+        with BM25_CACHE_PATH.open("rb") as f:
+            index = pickle.load(f)
+    except Exception as exc:
+        print(f"[bm25 cache] failed to load cache, rebuilding: {exc}")
+        return None
+
+    if not isinstance(index, dict):
+        return None
+    if index.get("version") != BM25_CACHE_VERSION:
+        return None
+    if index.get("signature") != signature:
+        return None
+
+    return index
+
+
+def _save_bm25_index_to_disk(index: Dict[str, Any]) -> None:
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = BM25_CACHE_PATH.with_suffix(".tmp")
+    with tmp_path.open("wb") as f:
+        pickle.dump(index, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp_path, BM25_CACHE_PATH)
+
+
+@lru_cache(maxsize=1)
+def get_bm25_index() -> Dict[str, Any]:
+    signature = _bm25_source_signature()
+    cached = _load_bm25_index_from_disk(signature)
+    if cached is not None:
+        print(f"[bm25 cache] loaded {len(cached.get('entries', []))} chunks from {BM25_CACHE_PATH}")
+        return cached
+
+    print("[bm25 cache] building BM25 index from enabled knowledge sources...")
+    index = _build_bm25_index(signature)
+    _save_bm25_index_to_disk(index)
+    print(f"[bm25 cache] saved {len(index.get('entries', []))} chunks to {BM25_CACHE_PATH}")
+    return index
+
+
+def clear_bm25_cache(remove_disk_cache: bool = False) -> None:
+    get_bm25_index.cache_clear()
+    if remove_disk_cache and BM25_CACHE_PATH.exists():
+        BM25_CACHE_PATH.unlink()
+
+
+@lru_cache(maxsize=1)
+def get_keyword_corpus() -> List[Document]:
+    return [entry["doc"] for entry in get_bm25_index().get("entries", [])]
+
+
+def _filter_entries_by_sources(
+    entries: List[Dict[str, Any]],
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    if not source_ids:
+        return entries
+
+    allowed = {source_id for source_id in source_ids if source_id}
+    if not allowed:
+        return entries
+
+    return [entry for entry in entries if entry.get("source_id") in allowed]
+
+
+def filter_docs_by_sources(docs: List[Document], source_ids: Optional[List[str]] = None) -> List[Document]:
+    if not source_ids:
+        return docs
+
+    allowed = {source_id for source_id in source_ids if source_id}
+    if not allowed:
+        return docs
+
+    return [
+        doc for doc in docs
+        if (doc.metadata or {}).get("knowledge_source_id") in allowed
+    ]
+
+
+def bm25_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    entries = _filter_entries_by_sources(
+        get_bm25_index().get("entries", []),
+        source_ids=source_ids,
+    )
+    query_terms = tokenize(query)
+
+    if not entries or not query_terms:
+        return []
+
+    avg_doc_len = sum(entry["token_count"] for entry in entries) / max(1, len(entries))
+    query_term_set = set(query_terms)
+    doc_freq = {
+        term: sum(1 for entry in entries if term in entry["term_freq"])
+        for term in query_term_set
+    }
+
+    k1 = 1.5
+    b = 0.75
+    scored = []
+
+    for entry in entries:
+        term_freq = entry["term_freq"]
+        doc_len = entry["token_count"]
+        if not doc_len:
+            continue
+
+        score = 0.0
+        for term in query_terms:
+            tf = term_freq.get(term, 0)
+            if not tf:
+                continue
+
+            df = doc_freq.get(term, 0)
+            idf = math.log(1 + (len(entries) - df + 0.5) / (df + 0.5))
+            numerator = tf * (k1 + 1)
+            denominator = tf + k1 * (1 - b + b * doc_len / avg_doc_len)
+            score += idf * numerator / denominator
+
+        if score > 0:
+            scored.append({"doc": entry["doc"], "score": score, "retriever": "bm25"})
+
+    scored.sort(key=lambda item: item["score"], reverse=True)
+    return scored[:top_k]
+
+
+def vector_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    docs = retrieve_documents(query=query, top_k=top_k, source_ids=source_ids)
+    return [
+        {
+            "doc": doc,
+            "score": None,
+            "retriever": "vector",
+        }
+        for doc in docs
+    ]
+
+
+def document_key(doc: Document) -> str:
+    metadata = doc.metadata or {}
+    source = metadata.get("source", "")
+    chunk_id = metadata.get("chunk_id", "")
+    page = metadata.get("page", "")
+    preview = doc.page_content[:80]
+    return f"{source}|{chunk_id}|{page}|{preview}"
+
+
+def merge_hits(groups: Iterable[List[Dict[str, Any]]], top_k: int) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for hits in groups:
+        for rank, hit in enumerate(hits, start=1):
+            doc = hit["doc"]
+            key = document_key(doc)
+            base_score = hit.get("score")
+            normalized_score = 1.0 / rank if base_score is None else float(base_score)
+
+            if key not in merged:
+                merged[key] = {
+                    "doc": doc,
+                    "score": normalized_score,
+                    "retrievers": {hit.get("retriever", "")},
+                }
+            else:
+                merged[key]["score"] += normalized_score
+                merged[key]["retrievers"].add(hit.get("retriever", ""))
+
+    results = list(merged.values())
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return results[:top_k]
+
+
+def hybrid_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    mode: str = "hybrid",
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    from app.rag.reranker import rerank_hits
+
+    mode = mode.lower()
+
+    if mode == "vector":
+        hits = merge_hits([vector_search(query, top_k, source_ids=source_ids)], top_k)
+        return rerank_hits(query, hits, top_k)
+
+    if mode == "bm25":
+        hits = merge_hits([bm25_search(query, top_k, source_ids=source_ids)], top_k)
+        return rerank_hits(query, hits, top_k)
+
+    vector_hits = vector_search(query, max(top_k, RETRIEVER_TOP_K), source_ids=source_ids)
+    keyword_hits = bm25_search(query, max(top_k, RETRIEVER_TOP_K), source_ids=source_ids)
+    hits = merge_hits([vector_hits, keyword_hits], max(top_k, RETRIEVER_TOP_K))
+    return rerank_hits(query, hits, top_k)

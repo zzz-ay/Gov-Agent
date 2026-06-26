@@ -1,0 +1,171 @@
+import math
+import re
+from functools import lru_cache
+from typing import Any, Dict, Iterable, List, Optional
+
+from langchain_core.documents import Document
+
+from app.config import CHUNK_OVERLAP, CHUNK_SIZE, RETRIEVER_TOP_K
+from app.rag.loader import load_documents_from_enabled_sources
+from app.rag.retriever import retrieve_documents
+from app.rag.splitter import split_documents
+
+
+def tokenize(text: str) -> List[str]:
+    text = text.lower()
+    ascii_terms = re.findall(r"[a-z0-9]+", text)
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
+    cjk_bigrams = [
+        "".join(cjk_chars[i : i + 2])
+        for i in range(max(0, len(cjk_chars) - 1))
+    ]
+    return ascii_terms + cjk_chars + cjk_bigrams
+
+
+@lru_cache(maxsize=1)
+def get_keyword_corpus() -> List[Document]:
+    docs = load_documents_from_enabled_sources()
+    return split_documents(
+        documents=docs,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+
+
+def filter_docs_by_sources(docs: List[Document], source_ids: Optional[List[str]] = None) -> List[Document]:
+    if not source_ids:
+        return docs
+
+    allowed = {source_id for source_id in source_ids if source_id}
+    if not allowed:
+        return docs
+
+    return [
+        doc for doc in docs
+        if (doc.metadata or {}).get("knowledge_source_id") in allowed
+    ]
+
+
+def bm25_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    docs = filter_docs_by_sources(get_keyword_corpus(), source_ids=source_ids)
+    query_terms = tokenize(query)
+
+    if not docs or not query_terms:
+        return []
+
+    tokenized_docs = [tokenize(doc.page_content) for doc in docs]
+    avg_doc_len = sum(len(tokens) for tokens in tokenized_docs) / max(1, len(tokenized_docs))
+    doc_freq: Dict[str, int] = {}
+
+    for tokens in tokenized_docs:
+        for term in set(tokens):
+            doc_freq[term] = doc_freq.get(term, 0) + 1
+
+    k1 = 1.5
+    b = 0.75
+    scored = []
+
+    for doc, tokens in zip(docs, tokenized_docs):
+        if not tokens:
+            continue
+
+        term_freq: Dict[str, int] = {}
+        for term in tokens:
+            term_freq[term] = term_freq.get(term, 0) + 1
+
+        score = 0.0
+        doc_len = len(tokens)
+
+        for term in query_terms:
+            if term not in term_freq:
+                continue
+
+            df = doc_freq.get(term, 0)
+            idf = math.log(1 + (len(docs) - df + 0.5) / (df + 0.5))
+            numerator = term_freq[term] * (k1 + 1)
+            denominator = term_freq[term] + k1 * (1 - b + b * doc_len / avg_doc_len)
+            score += idf * numerator / denominator
+
+        if score > 0:
+            scored.append({"doc": doc, "score": score, "retriever": "bm25"})
+
+    scored.sort(key=lambda item: item["score"], reverse=True)
+    return scored[:top_k]
+
+
+def vector_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    docs = retrieve_documents(query=query, top_k=top_k, source_ids=source_ids)
+    return [
+        {
+            "doc": doc,
+            "score": None,
+            "retriever": "vector",
+        }
+        for doc in docs
+    ]
+
+
+def document_key(doc: Document) -> str:
+    metadata = doc.metadata or {}
+    source = metadata.get("source", "")
+    chunk_id = metadata.get("chunk_id", "")
+    page = metadata.get("page", "")
+    preview = doc.page_content[:80]
+    return f"{source}|{chunk_id}|{page}|{preview}"
+
+
+def merge_hits(groups: Iterable[List[Dict[str, Any]]], top_k: int) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for hits in groups:
+        for rank, hit in enumerate(hits, start=1):
+            doc = hit["doc"]
+            key = document_key(doc)
+            base_score = hit.get("score")
+            normalized_score = 1.0 / rank if base_score is None else float(base_score)
+
+            if key not in merged:
+                merged[key] = {
+                    "doc": doc,
+                    "score": normalized_score,
+                    "retrievers": {hit.get("retriever", "")},
+                }
+            else:
+                merged[key]["score"] += normalized_score
+                merged[key]["retrievers"].add(hit.get("retriever", ""))
+
+    results = list(merged.values())
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return results[:top_k]
+
+
+def hybrid_search(
+    query: str,
+    top_k: int = RETRIEVER_TOP_K,
+    mode: str = "hybrid",
+    source_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    from app.rag.reranker import rerank_hits
+
+    mode = mode.lower()
+
+    if mode == "vector":
+        hits = merge_hits([vector_search(query, top_k, source_ids=source_ids)], top_k)
+        return rerank_hits(query, hits, top_k)
+
+    if mode == "bm25":
+        hits = merge_hits([bm25_search(query, top_k, source_ids=source_ids)], top_k)
+        return rerank_hits(query, hits, top_k)
+
+    vector_hits = vector_search(query, max(top_k, RETRIEVER_TOP_K), source_ids=source_ids)
+    keyword_hits = bm25_search(query, max(top_k, RETRIEVER_TOP_K), source_ids=source_ids)
+    hits = merge_hits([vector_hits, keyword_hits], max(top_k, RETRIEVER_TOP_K))
+    return rerank_hits(query, hits, top_k)

@@ -1,0 +1,7 @@
+{"question":"就业补贴怎么申请？","expected_source_ids":["gov_policy"],"expected_task_type":"policy_service","expected_keywords":["补贴","申请"]}
+{"question":"劳动合同试用期怎么规定？","expected_source_ids":["laws"],"expected_task_type":"legal_basis","expected_keywords":["劳动合同","试用期"]}
+{"question":"虚假申请就业补贴有什么风险？","expected_source_ids":["gov_policy","laws","legal_cases"],"expected_task_type":"risk_compliance","expected_keywords":["虚假","补贴","风险"]}
+{"question":"类似诈骗罪法院一般怎么判？","expected_source_ids":["laws","legal_cases"],"expected_task_type":"case_reference","expected_keywords":["诈骗","法院","判"]}
+{"question":"办理居住证需要什么材料？","expected_source_ids":["gov_policy"],"expected_task_type":"policy_service","expected_keywords":["居住证","材料"]}
+{"question":"企业收集员工个人信息需要注意哪些合规要求？","expected_source_ids":["laws"],"expected_task_type":"legal_basis","expected_keywords":["企业","个人信息","合规"]}
+{"question":"补贴申报名单什么时候公示？","expected_source_ids":["gov_policy"],"expected_task_type":"policy_service","expected_keywords":["补贴","公示"]}

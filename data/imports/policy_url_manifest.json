@@ -1,0 +1,103 @@
+{
+  "items": [
+    {
+      "category": "employment_entrepreneurship",
+      "title": "国务院办公厅关于支持多渠道灵活就业的意见",
+      "url": "https://www.gov.cn/zhengce/content/2020-07/31/content_5531613.htm",
+      "source_org": "国务院办公厅",
+      "publish_date": "2020-07-31",
+      "region": "national",
+      "topic": "就业创业政策",
+      "doc_type": "policy",
+      "authority_level": "policy"
+    },
+    {
+      "category": "employment_entrepreneurship",
+      "title": "国务院办公厅关于优化调整稳就业政策措施全力促发展惠民生的通知",
+      "url": "https://www.gov.cn/zhengce/content/2023-04/26/content_5753299.htm",
+      "source_org": "国务院办公厅",
+      "publish_date": "2023-04-19",
+      "region": "national",
+      "topic": "就业创业政策",
+      "doc_type": "policy",
+      "authority_level": "policy"
+    },
+    {
+      "category": "social_security_medical_insurance",
+      "title": "国务院关于整合城乡居民基本医疗保险制度的意见",
+      "url": "https://www.gov.cn/zhengce/content/2016-01/12/content_10582.htm",
+      "source_org": "国务院",
+      "publish_date": "2016-01-03",
+      "region": "national",
+      "topic": "社保医保政策",
+      "doc_type": "policy",
+      "authority_level": "policy"
+    },
+    {
+      "category": "household_registration_residence_permit",
+      "title": "居住证暂行条例",
+      "url": "https://www.gov.cn/zhengce/content/2015-12/12/content_10398.htm",
+      "source_org": "国务院",
+      "publish_date": "2015-11-26",
+      "region": "national",
+      "topic": "户籍居住证政策",
+      "doc_type": "regulation",
+      "authority_level": "administrative_regulation"
+    },
+    {
+      "category": "household_registration_residence_permit",
+      "title": "国务院办公厅关于印发《港澳台居民居住证申领发放办法》的通知",
+      "url": "https://www.gov.cn/zhengce/content/2018-08/19/content_5314865.htm",
+      "source_org": "国务院办公厅",
+      "publish_date": "2018-08-06",
+      "region": "national",
+      "topic": "户籍居住证政策",
+      "doc_type": "policy",
+      "authority_level": "policy"
+    },
+    {
+      "category": "housing_provident_fund",
+      "title": "住房公积金管理条例",
+      "url": "https://www.gov.cn/gongbao/content/2002/content_61418.htm",
+      "source_org": "国务院",
+      "publish_date": "2002-03-24",
+      "region": "national",
+      "topic": "住房公积金政策",
+      "doc_type": "regulation",
+      "authority_level": "administrative_regulation"
+    },
+    {
+      "category": "data_security_personal_information",
+      "title": "关键信息基础设施安全保护条例",
+      "url": "https://www.gov.cn/zhengce/content/2021-08/17/content_5631671.htm",
+      "source_org": "国务院",
+      "publish_date": "2021-07-30",
+      "region": "national",
+      "topic": "数据安全/个人信息保护政策",
+      "doc_type": "regulation",
+      "authority_level": "administrative_regulation"
+    },
+    {
+      "category": "enterprise_compliance",
+      "title": "中华人民共和国市场主体登记管理条例",
+      "url": "https://www.gov.cn/zhengce/content/2021-08/24/content_5632964.htm",
+      "source_org": "国务院",
+      "publish_date": "2021-07-27",
+      "region": "national",
+      "topic": "企业合规政策",
+      "doc_type": "regulation",
+      "authority_level": "administrative_regulation"
+    },
+    {
+      "category": "enterprise_compliance",
+      "title": "国务院关于加强监管防范风险推动资本市场高质量发展的若干意见",
+      "url": "https://www.gov.cn/zhengce/content/202404/content_6944877.htm",
+      "source_org": "国务院",
+      "publish_date": "2024-04-04",
+      "region": "national",
+      "topic": "企业合规政策",
+      "doc_type": "policy",
+      "authority_level": "policy"
+    }
+  ]
+}
