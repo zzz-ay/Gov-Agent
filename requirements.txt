@@ -1,0 +1,63 @@
+
+# =========================
+# Core LLM / Agent Framework
+# =========================
+
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-chroma
+langgraph
+
+# =========================
+# LLM API Support
+# =========================
+openai
+langchain-openai
+python-dotenv
+
+
+# =========================
+# RAG / Vector Database
+# =========================
+chromadb
+sentence-transformers
+
+
+# =========================
+# Document Loading
+# =========================
+pypdf
+python-docx
+unstructured
+
+# =========================
+# Web / App UI
+# =========================
+streamlit
+gradio
+fastapi
+uvicorn
+
+
+# =========================
+# Data Processing
+# =========================
+pandas
+numpy
+tqdm
+
+# =========================
+# Optional: Chinese Text Processing
+# =========================
+jieba
+
+# =========================
+# Optional: MCP
+# 后续接 MCP 时使用
+# =========================
+mcp
+langchain-mcp-adapters
+
+dashscope
